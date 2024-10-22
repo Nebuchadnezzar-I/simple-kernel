@@ -2,6 +2,8 @@
 #define VIDEO_MEMORY 0xb8000
 
 #define KEYBOARD_DATA_PORT 0x60
+#define KEYBOARD_STATUS_PORT 0x64
+
 #define VGA_COMMAND_PORT 0x3D4
 #define VGA_DATA_PORT 0x3D5
 
@@ -25,7 +27,7 @@ struct Screen {
 } screen = { 25, 80 };
 
 int cursor_position = 0;
-char *vidmem = (char *) VIDEO_MEMORY;
+char *vidmem = (char *) 0xb8000;
 
 static inline unsigned char inb(unsigned short port) {
     unsigned char ret;
@@ -47,75 +49,69 @@ void k_set_cursor(int position) {
 
 void k_print_char(char c) {
     if (c == '\n') {
-        // Move to the start of the next line
-        int current_row = cursor_position / (screen.screencols * 2);
-        cursor_position = (current_row + 1) * screen.screencols * 2;
-
-        // Ensure the cursor doesn't exceed the screen size
-        if (cursor_position >= screen.screenrows * screen.screencols * 2) {
-            cursor_position = 0;  // Reset cursor to the top
-        }
+        int current_row = cursor_position / (80 * 2);
+        cursor_position = (current_row + 1) * 80 * 2;
     } else {
-        // Write the character to video memory and advance the cursor
         vidmem[cursor_position] = c;
-        vidmem[cursor_position + 1] = WHITE_TXT;  // Set attribute (color)
-        cursor_position += 2; // Move to the next character cell
-
-        // Ensure the cursor doesn't exceed the screen size
-        if (cursor_position >= screen.screenrows * screen.screencols * 2) {
-            cursor_position = 0;  // Reset cursor to the top
-        }
+        vidmem[cursor_position + 1] = 0x07;
+        cursor_position += 2;
     }
 
-    // Update the hardware cursor
     k_set_cursor(cursor_position / 2);
 }
+
 
 void keyboard_handler() {
     unsigned char scancode = inb(KEYBOARD_DATA_PORT);
 
     if (scancode > 128) {
-        // Key release, not handled in this simple version
         return;
     }
 
     char key = keyboard_map[scancode];
     if (key != 0) {
-        k_print_char(key);  // Print the pressed character to the screen
+        k_print_char(key);
     }
 }
 
 void k_print(const char *message) {
+    char *vidmem = (char *) VIDEO_MEMORY;
+
     while (*message) {
-        k_print_char(*message);
+        if (*message == '\n') {
+            int current_row = cursor_position / (screen.screencols * 2);
+            cursor_position = (current_row + 1) * screen.screencols * 2;
+        } else {
+            vidmem[cursor_position] = *message;
+            vidmem[cursor_position + 1] = WHITE_TXT;
+            cursor_position += 2;
+        }
         message++;
     }
 
-    // Update the hardware cursor after the message is printed
     k_set_cursor(cursor_position / 2);
 }
 
 void k_clean_screen() {
+    char *vidmem = (char *) VIDEO_MEMORY;
     int screen_size = screen.screenrows * screen.screencols;
 
-    // Clear the screen by writing spaces to all positions
     for (int i = 0; i < screen_size; i++) {
-        vidmem[i * 2] = ' ';       // Blank character
-        vidmem[i * 2 + 1] = WHITE_TXT; // White text on black background
+        *vidmem++ = ' ';
+        *vidmem++ = WHITE_TXT;
     }
 
     cursor_position = 0;
-    k_set_cursor(cursor_position / 2);  // Reset cursor to the top-left corner
+    k_set_cursor(cursor_position / 2);
 }
 
 void k_main() {
     k_clean_screen();
 
     k_print("Hello, world!\n");
-    k_print("My own kernel!\n");
+    k_print("My own kernel!");
 
     while (1) {
-        keyboard_handler();  // Handle keyboard input
+        keyboard_handler();
     }
 }
-
